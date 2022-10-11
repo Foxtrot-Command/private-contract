@@ -4,6 +4,7 @@ pragma solidity 0.8.4;
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
+import "hardhat/console.sol";
 
 /**
  * @title Automatic Private sale
@@ -54,8 +55,8 @@ contract FoxtrotPrivateSale is Ownable {
 
         tokensSoldCounter = MAX_AMOUNT_TOKEN;
 
-        dates[ContractDates.SALE_START] = 1653516933;
-        dates[ContractDates.SALE_END] = 1672700400;
+        dates[ContractDates.SALE_START] = 1665504776;
+        dates[ContractDates.SALE_END] = 1728663176;
         dates[ContractDates.VESTING_PERIOD] = 360 days;
     }
 
@@ -397,7 +398,9 @@ contract FoxtrotPrivateSale is Ownable {
             token != tokenContract,
             "FXD: You can't withdraw Foxtrot Tokens"
         );
-        IERC20(token).transfer(receiver, amount);
+        IERC20 Token = IERC20(token);
+        require(Token.balanceOf(address(this)) >= amount, "FXD: Insufficient amount");
+        Token.transfer(receiver, amount);
         return true;
     }
 
