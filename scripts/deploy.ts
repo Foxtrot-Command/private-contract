@@ -25,12 +25,6 @@ async function main() {
   await busdToken.deployed();
   await privateSale.deployed();
 
-  await privateSale
-    .connect(masterAccount)
-    .addAddressToWhitelist(
-      masterAccount.address,
-      ethers.utils.parseEther("120000")
-    );
   await foxtrotToken
     .connect(masterAccount)
     .secureTransfer(
