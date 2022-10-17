@@ -1,5 +1,4 @@
 import * as dotenv from "dotenv";
-import { extendEnvironment, HardhatUserConfig, task } from "hardhat/config";
 import "@nomiclabs/hardhat-etherscan";
 import "@nomiclabs/hardhat-waffle";
 import "hardhat-gas-reporter";
@@ -7,7 +6,7 @@ import "solidity-coverage";
 import "hardhat-contract-sizer";
 import "hardhat-docgen";
 
-dotenv.config();
+dotenv.config({path: __dirname + '/.env'});
 
 import "./tasks/tasks.ts";
 
@@ -38,7 +37,7 @@ module.exports = {
   networks: {
     hardhat: {},
     bsc: {
-      accounts: process.env.BSC_KEY !== undefined ? [process.env.BSC_KEY] : [],
+      accounts: process.env.BSC_DEPLOYER_KEY !== undefined ? [process.env.BSC_DEPLOYER_KEY] : [],
       url: `https://bsc-dataseed1.binance.org`,
     },
     bscTestnet: {
