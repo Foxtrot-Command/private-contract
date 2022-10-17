@@ -2,7 +2,8 @@
   "license": "MIT",
   "private": "true",
   "scripts": {
-    "test:migration:soft": "npx hardhat run scripts/deploy.js --network localhost",
+    "deploy:mainnet": "yarn hardhat run scripts/deployPrivateSale.ts --network bsc",
+    "test:migration:soft": "npx hardhat run scripts/deploy.ts --network localhost",
     "claimStatus": "npx hardhat run --network localhost ./scripts/changeClaimStatus.js",
     "advanceTime": "npx hardhat run scripts/advanceTime.js --network localhost",
     "test": "npx hardhat test",

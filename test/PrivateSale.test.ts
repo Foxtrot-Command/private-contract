@@ -12,6 +12,7 @@ describe("Private Sale", function () {
     masterAccount: SignerWithAddress,
     userAccount: SignerWithAddress,
     userAccount2: SignerWithAddress,
+    userAccount3: SignerWithAddress,
     companyVault: SignerWithAddress,
     addrs: SignerWithAddress[];
 
@@ -23,7 +24,7 @@ describe("Private Sale", function () {
   };
 
   before(async () => {
-    [masterAccount, userAccount, userAccount2, companyVault, ...addrs] =
+    [masterAccount, userAccount, userAccount2, userAccount3, companyVault, ...addrs] =
       await ethers.getSigners();
 
     const BusdToken = await ethers.getContractFactory("MockBUSD");
@@ -64,13 +65,23 @@ describe("Private Sale", function () {
     });
 
     it("Should check Foxtrot Tokens balance in Private Sale contract", async () => {
-      var balance = await privateSale.balance(foxtrotToken.address);
+      let balance = await privateSale.balance(foxtrotToken.address);
       expect(balance).to.equal(tokenomicsPercentTokens);
     });
 
+    it("Should check if is UNIX TIMESTAMP enddate", async () => {
+      const endDate = await privateSale.connect(masterAccount).getSaleEnd();
+      expect(endDate).to.match(/^\d{10}$/, "Invalid unix timestamp")
+    })
+
+    it("Should claim date would be zero", async () => {
+      const claimDate = await privateSale.connect(masterAccount).claimStartAt();
+      expect(claimDate).to.equal(0);
+    })
+
     describe("#BUSD deployment", async () => {
       it("master wallet should have all of the BUSD tokens", async () => {
-        var balance = await busdToken.balanceOf(masterAccount.address);
+        let balance = await busdToken.balanceOf(masterAccount.address);
         expect(balance).to.equal(parseEther(500000000));
       });
     });
@@ -119,12 +130,10 @@ describe("Private Sale", function () {
 
     it("Company vault should have 10000 BUSD in the wallet", async () => {
       let expectedBalance = parseEther(5050);
-      var balance = await busdToken.balanceOf(companyVault.address);
+      let balance = await busdToken.balanceOf(companyVault.address);
       expect(balance).to.equal(expectedBalance, "Balance incorrect!");
     });
-  });
 
-  describe("#~ Whitelist disabled", async () => {
     it("Should send money from Master to User wallet to invest", async () => {
       let amount = parseEther(15000);
       await busdToken
@@ -156,6 +165,20 @@ describe("Private Sale", function () {
   });
 
   describe("#Claim", async () => {
+
+
+      it("Should invest personating a address", async () => {
+        await privateSale.manualInvest(userAccount3.address, parseEther(350));
+
+        let accounting = await privateSale.investorAccounting(
+          userAccount3.address
+        );
+        expect(accounting.total).to.equal(parseEther(11666), "Amount incorrect");
+        expect(accounting.claimed).to.equal(0, "Amount incorrect");
+        expect(accounting.locked).to.equal(parseEther(11666), "Amount incorrect");
+      })
+
+
     it("Should check the total amount of accounting investor", async () => {
       let accounting = await privateSale.investorAccounting(
         userAccount.address
@@ -177,6 +200,10 @@ describe("Private Sale", function () {
         await privateSale.isClaimEnabled(),
         "Change claim is not available"
       ).to.true;
+      
+      const tx = changeClaimStatusTx.wait();
+      const event = await tx;
+      expect(event.transactionHash).to.match(/^0x([A-Fa-f0-9]{64})$/)
     });
 
     it("It should not be possible to change Claim status again", async () => {
@@ -185,9 +212,14 @@ describe("Private Sale", function () {
       ).to.be.revertedWith("FXD: Claim already enabled");
     });
 
+    it("Should check available tokens of X Address", async () => {
+      let availableOf = await privateSale.availableOf(userAccount.address);
+      expect(availableOf).to.equal(parseEther(13466.56));
+    })
+
     it("Should be able to claim 8% of available tokens", async () => {
       await privateSale.connect(userAccount).claim();
-      var balance = await foxtrotToken.balanceOf(userAccount.address);
+      let balance = await foxtrotToken.balanceOf(userAccount.address);
       expect(Number(formatEther(balance))).to.equal(
         13466.56,
         "Balance of 8% tokens incorrect"
@@ -201,11 +233,39 @@ describe("Private Sale", function () {
     });
   });
 
-  describe("#Purge non selled tokens", async () => {
+  describe("#Admin functionalities", async () => {
+
+    it("#~[TEST] Send BUSD to contract", async () => {
+      await busdToken
+        .connect(masterAccount)
+        .transfer(privateSale.address, parseEther(999));
+
+      expect(await busdToken.balanceOf(privateSale.address)).to.equal(parseEther(999))
+    })
+
+    it("Should be reverted because cannot withdraw Foxtrot Tokens", async () => {
+      expect(privateSale
+        .connect(masterAccount)
+        .withdraw(foxtrotToken.address, userAccount3.address, parseEther(400))
+      )
+        .to.be.revertedWith("FXD: You can't withdraw Foxtrot Tokens");
+    })
+
+    it("Should withdraw all non Foxtrot Tokens from the Smart Contract", async () => {
+      const withdraw = await privateSale
+        .connect(masterAccount)
+        .withdraw(busdToken.address, userAccount3.address, parseEther(999))
+
+      expect(withdraw).to.emit(privateSale, 'transfer')
+      expect(await busdToken.balanceOf(userAccount3.address)).to.equal(parseEther(999), 'Amount incorrect');
+      expect(await busdToken.balanceOf(privateSale.address)).to.equal(0, 'Amount incorrect');
+
+    })
+
     it("Should purge non selled tokens", async () => {
       await privateSale.setSaleEnd();
 
-      let totalAmountOfBuyedTokens = 501_665 - 13466.56;
+      let totalAmountOfBuyedTokens = 513_331 - 13466.56;
       await privateSale.connect(masterAccount).purgeNonSelledTokens();
       let balance_after = await privateSale.balance(foxtrotToken.address);
       expect(Number(formatEther(balance_after))).to.equal(
@@ -215,13 +275,14 @@ describe("Private Sale", function () {
 
       let balance = await foxtrotToken.balanceOf(foxtrotToken.address);
       expect(Number(formatEther(balance))).to.equal(
-        21_4498_335,
+        214_486_669,
         "Purge balance foxtrotToken incorrect"
       );
     });
   });
 
   describe("#Time advanced", async () => {
+
     let times = {
       seconds: 0.0000029591,
       minutes: 0.00017754,
@@ -242,6 +303,7 @@ describe("Private Sale", function () {
       2 * 2592000,
       2592000,
     ];
+
     let phases = [
       "second",
       "minute",
@@ -264,7 +326,7 @@ describe("Private Sale", function () {
 
       TimeMachine(time);
       await privateSale.connect(account).claim();
-      var balance = await foxtrotToken.balanceOf(account.address);
+      let balance = await foxtrotToken.balanceOf(account.address);
 
       let balanceAfter = (tge * timeSelector) / 100;
       let balanceLenght = (balance + balanceAfter).length;
@@ -291,13 +353,12 @@ describe("Private Sale", function () {
           : 1 + " " + phases[index];
 
         if (totalValues - 1 !== index) {
-          it(`The received percentage should be the correct at ${phaseName} [${
-            values[index]
-              ? values[index]
-              : values[4] * Number(phaseName.replace(" months", ""))
-          }]`, async () => {
-            await testPercentages(userAccount, time, values[index]);
-          });
+          it(`The received percentage should be the correct at ${phaseName} [${values[index]
+            ? values[index]
+            : values[4] * Number(phaseName.replace(" months", ""))
+            }]`, async () => {
+              await testPercentages(userAccount, time, values[index]);
+            });
         } else {
           it(`Should be reverted because tokens are already claimed at ${phaseName}`, async () => {
             await expect(

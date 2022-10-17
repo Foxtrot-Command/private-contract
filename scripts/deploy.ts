@@ -25,12 +25,6 @@ async function main() {
   await busdToken.deployed();
   await privateSale.deployed();
 
-  await privateSale
-    .connect(masterAccount)
-    .addAddressToWhitelist(
-      masterAccount.address,
-      ethers.utils.parseEther("120000")
-    );
   await foxtrotToken
     .connect(masterAccount)
     .secureTransfer(
@@ -47,7 +41,7 @@ async function main() {
   console.log("Token deployed to:", foxtrotToken.address);
 
   console.log(`
-NEXT_PUBLIC_PRIVATE_ONE_CONTRACT=${privateSale.address}
+NEXT_PUBLIC_PRIVATE_TWO_CONTRACT=${privateSale.address}
 NEXT_PUBLIC_BUSD_CONTRACT=${busdToken.address}
 NEXT_PUBLIC_FXD_CONTRACT=${foxtrotToken.address}
   `);
