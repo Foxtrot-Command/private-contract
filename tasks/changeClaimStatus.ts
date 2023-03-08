@@ -10,7 +10,7 @@ task("change-claim", "Change claim status")
     }
 
     const [deployer] = await hre.ethers.getSigners();
-    const privateSale = await (
+    const privateSale = (
       await hre.ethers.getContractFactory("FoxtrotPrivateSale")
     ).attach(taskArgs.contract);
     await privateSale.connect(deployer).changeClaimStatus();

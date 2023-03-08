@@ -3,7 +3,7 @@ pragma solidity 0.8.4;
 
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import "@openzeppelin/contracts/access/Ownable.sol";
+import "contracts/utils/Whitelist.sol";
 
 /**
  * @title Automatic Private sale
@@ -11,7 +11,7 @@ import "@openzeppelin/contracts/access/Ownable.sol";
  * @notice A contract that manages a Public Private Sale, purchase, claiming and vesting time
  */
 
-contract FoxtrotPrivateSale is Ownable {
+contract FoxtrotPrivateSale is Whitelist {
     enum InvestorTrace {
         CLAIMED,
         LOCKED,
@@ -30,6 +30,7 @@ contract FoxtrotPrivateSale is Ownable {
     mapping(address => mapping(InvestorTrace => uint256)) private accounting;
     mapping(ContractDates => uint256) private dates;
 
+    event UpdatePrivateSaleStatus(bool isOpen);
     event ClaimToken(address tokenAddress, uint256 tokenAmount);
     event Invest(address investor, uint256 busdAmount, uint256 tokenAmount);
 
@@ -37,33 +38,38 @@ contract FoxtrotPrivateSale is Ownable {
     address public tokenContract;
     address public companyVault;
 
+    bool public isPrivateSaleOpen;
     bool public isClaimEnabled;
     uint256 private tokensSoldCounter;
     uint256 public totalBusdInvested;
 
     uint256 private immutable TGE_PERCENT = 8;
     uint256 private immutable AFTER_TGE_BLOCK_TIME = 90 days;
-    uint256 private immutable FXD_PRICE = 30000000000000000 wei;
-    uint256 private immutable MIN_BUSD_ACCEPTED = 50 ether;
-    uint256 private constant MAX_AMOUNT_TOKEN = 15050000 ether;
+    uint256 private immutable FXD_PRICE = 25000000000000000 wei;
+    uint256 private immutable MIN_BUSD_ACCEPTED = 1 ether;
+    uint256 private constant MAX_AMOUNT_TOKEN = 32_250_000 ether;
 
     constructor(address _companyVault, address _busdContract) {
         companyVault = _companyVault;
         busdContract = _busdContract;
         tokenContract = address(0);
+        Whitelist.isWhitelistEnabled = true;
 
         tokensSoldCounter = MAX_AMOUNT_TOKEN;
 
         dates[ContractDates.SALE_START] = 1665504776;
-        dates[ContractDates.SALE_END] = 1728663176;
         dates[ContractDates.VESTING_PERIOD] = 360 days;
+
+        isPrivateSaleOpen = true;
     }
 
     /**
      * @dev This function allows to invest in the private sale
      * @param amount Amount in BUSD to be invested in wei format
      */
-    function invest(uint256 amount) public {
+    function invest(uint256 amount) public onlyWhitelisted {
+        require(isPrivateSaleOpen, "FXD: Private Sale is closed");
+
         require(
             IERC20(busdContract).balanceOf(msg.sender) >= amount,
             "FXD: Insufficient BUSD"
@@ -74,15 +80,23 @@ contract FoxtrotPrivateSale is Ownable {
         );
         require(
             block.timestamp >= dates[ContractDates.SALE_START],
-            "FXD: Private Sale not started"
-        );
-        require(
-            block.timestamp <= dates[ContractDates.SALE_END],
-            "FXD: Private Sale ended"
+            "FXD: Private Sale not started yet"
         );
 
+        if (Whitelist.isWhitelistEnabled) {
+            require(
+                accounting[msg.sender][InvestorTrace.BUSD_INVESTED] <=
+                    Whitelist.amount[msg.sender] &&
+                    amount <= Whitelist.amount[msg.sender] &&
+                    accounting[msg.sender][InvestorTrace.BUSD_INVESTED] +
+                        amount <=
+                    Whitelist.amount[msg.sender],
+                "FXD: Private Sale purchase limit"
+            );
+        }
+
         if (tokensSoldCounter >= getTokenAmount(MIN_BUSD_ACCEPTED, FXD_PRICE))
-            require(amount >= MIN_BUSD_ACCEPTED, "FXD: Minimum amount 50 BUSD");
+            require(amount >= MIN_BUSD_ACCEPTED, "FXD: Minimum amount 1 BUSD");
 
         uint256 tokensAmount = getTokenAmount(amount, FXD_PRICE);
         require(
@@ -134,7 +148,7 @@ contract FoxtrotPrivateSale is Ownable {
      * @dev ClaimToken Emit event
      * @notice This method is the main method to claim tokens
      */
-    function claim() external {
+    function claim() external onlyWhitelisted {
         require(isClaimEnabled, "FXD: Claim status inactive");
         require(
             accounting[msg.sender][InvestorTrace.LOCKED] > 0,
@@ -328,7 +342,7 @@ contract FoxtrotPrivateSale is Ownable {
      * @param from Address of the investor
      * @return uint256 Returns the total amount of tokens that the investor has invested
      */
-    function historicalBalance(address from) internal view returns (uint256) {
+    function historicalBalance(address from) external view returns (uint256) {
         return (accounting[from][InvestorTrace.LOCKED] +
             accounting[from][InvestorTrace.CLAIMED]);
     }
@@ -347,18 +361,26 @@ contract FoxtrotPrivateSale is Ownable {
     }
 
     /**
-     * @notice This method is a helper function that allows to set the end of the sale manually
+     * @notice This method is a helper function that allows to close the private sale manually
      */
-    function setSaleEnd() external onlyOwner returns (bool) {
-        dates[ContractDates.SALE_END] = block.timestamp;
-        return true;
+    function setSaleEnd() external onlyOwner {
+        isPrivateSaleOpen = false;
+        emit UpdatePrivateSaleStatus(false);
     }
 
     /**
-     * @return uint256 Date of the Private sale end
+     * @notice This method is a helper function that allows to open the private sale manually
      */
-    function getSaleEnd() external view returns (uint256) {
-        return dates[ContractDates.SALE_END];
+    function openPrivateSale() external onlyOwner {
+        isPrivateSaleOpen = true;
+        emit UpdatePrivateSaleStatus(true);
+    }
+
+    /**
+     * @return bool Show is the privatesale is open or closed
+     */
+    function showPrivateSaleStatus() external view returns (bool) {
+        return isPrivateSaleOpen;
     }
 
     /**
@@ -398,7 +420,10 @@ contract FoxtrotPrivateSale is Ownable {
             "FXD: You can't withdraw Foxtrot Tokens"
         );
         IERC20 Token = IERC20(token);
-        require(Token.balanceOf(address(this)) >= amount, "FXD: Insufficient amount");
+        require(
+            Token.balanceOf(address(this)) >= amount,
+            "FXD: Insufficient amount"
+        );
         Token.transfer(receiver, amount);
         return true;
     }
@@ -408,10 +433,6 @@ contract FoxtrotPrivateSale is Ownable {
      *         to the Foxtrot Command (FXD) Contract
      */
     function purgeNonSelledTokens() external onlyOwner {
-        require(
-            block.timestamp >= dates[ContractDates.SALE_END],
-            "FXD: Private sale is still alive"
-        );
         SafeERC20.safeTransfer(
             IERC20(tokenContract),
             tokenContract,

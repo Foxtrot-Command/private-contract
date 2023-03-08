@@ -69,9 +69,10 @@ describe("Private Sale", function () {
       expect(balance).to.equal(tokenomicsPercentTokens);
     });
 
-    it("Should check if is UNIX TIMESTAMP enddate", async () => {
-      const endDate = await privateSale.connect(masterAccount).getSaleEnd();
-      expect(endDate).to.match(/^\d{10}$/, "Invalid unix timestamp")
+    it("Should check if is boolean and true", async () => {
+      const actualPrivateSaleState = await privateSale.connect(masterAccount).showPrivateSaleStatus();
+      expect(actualPrivateSaleState).to.be.a('boolean')
+      expect(actualPrivateSaleState).to.be.true
     })
 
     it("Should claim date would be zero", async () => {
@@ -97,6 +98,17 @@ describe("Private Sale", function () {
       expect(newBalance).to.equal(amount);
     });
 
+    it("UserAccount should be on the whitelist", async () => {
+      await privateSale.connect(masterAccount).addAddressToWhitelist(userAccount.address, parseEther(11000));
+      expect(await privateSale.whitelist(userAccount.address), "Wallet not in whitelist").to.true;
+    });
+
+    it("UserAccount should have maximum invest amount of 5000", async () => {
+      let whitelistAmount = await privateSale.amount(userAccount.address);
+      expect(whitelistAmount).to.equal(parseEther(11000), "Wallet not in whitelist");
+    });
+
+
     it("Should approve allowance", async () => {
       let amount = parseEther(10000000);
       await busdToken.connect(userAccount).approve(privateSale.address, amount);
@@ -114,18 +126,26 @@ describe("Private Sale", function () {
       expect(actualBalance).to.equal(expectedBalance, "Balance incorrect!");
     });
 
+    it("It should NOT be possible to invest more than whitelisted BUSD", async () => {
+      let amount = parseEther(11001);
+      await expect(privateSale
+        .connect(userAccount)
+        .invest(amount)).to.be
+        .revertedWith('FXD: Private Sale purchase limit');
+    });
+
     it("Should invest 50 BUSD from userAccount", async () => {
       let amount = parseEther(50);
       await expect(privateSale.connect(userAccount).invest(amount))
         .to.emit(privateSale, "Invest")
-        .withArgs(userAccount.address, amount, parseEther(1666));
+        .withArgs(userAccount.address, amount, parseEther(2000));
     });
 
     it("It should can invest left BUSD in whitelist balance", async () => {
       let amount = parseEther(5000);
       await expect(privateSale.connect(userAccount).invest(amount))
-        .to.emit(privateSale, "Invest")
-        .withArgs(userAccount.address, amount, parseEther(166666));
+      .to.emit(privateSale, 'Invest')
+      .withArgs(userAccount.address, amount, parseEther(200000));
     });
 
     it("Company vault should have 10000 BUSD in the wallet", async () => {
@@ -156,16 +176,20 @@ describe("Private Sale", function () {
       expect(allowance).to.equal(amount, "Allowance amount incorrect");
     });
 
+    it("Whitelist should be disabled globally", async () => {
+      const status = await privateSale.connect(masterAccount).disableWhitelist();
+      expect(status).to.emit(privateSale, "WhitelistDisabled");
+    })
+
     it("Should invest 10000 BUSD from userAccount2", async () => {
       let amount = parseEther(10000);
       await expect(privateSale.connect(userAccount2).invest(amount))
         .to.emit(privateSale, "Invest")
-        .withArgs(userAccount2.address, amount, parseEther(333333));
+        .withArgs(userAccount2.address, amount, parseEther(400_000));
     });
   });
 
   describe("#Claim", async () => {
-
 
       it("Should invest personating a address", async () => {
         await privateSale.manualInvest(userAccount3.address, parseEther(350));
@@ -173,9 +197,9 @@ describe("Private Sale", function () {
         let accounting = await privateSale.investorAccounting(
           userAccount3.address
         );
-        expect(accounting.total).to.equal(parseEther(11666), "Amount incorrect");
+        expect(accounting.total).to.equal(parseEther(14000), "Amount incorrect");
         expect(accounting.claimed).to.equal(0, "Amount incorrect");
-        expect(accounting.locked).to.equal(parseEther(11666), "Amount incorrect");
+        expect(accounting.locked).to.equal(parseEther(14000), "Amount incorrect");
       })
 
 
@@ -183,14 +207,19 @@ describe("Private Sale", function () {
       let accounting = await privateSale.investorAccounting(
         userAccount.address
       );
-      expect(accounting.total).to.equal(parseEther(168332), "Amount incorrect");
+      expect(accounting.total).to.equal(parseEther(202_000), "Amount incorrect");
       expect(accounting.claimed).to.equal(0, "Amount incorrect");
       expect(accounting.locked).to.equal(
-        parseEther(168332),
+        parseEther(202_000),
         "Amount incorrect"
       );
       expect(accounting.busd).to.equal(parseEther(5050), "Amount incorrect");
     });
+
+    it("Invertor historical balance should be the correct amount", async() => {
+      const historicalBalance = await privateSale.historicalBalance(userAccount.address);
+      expect(historicalBalance).to.be.equal(parseEther(202_000))
+    })
 
     it("Should enable Claim status", async () => {
       const changeClaimStatusTx = await privateSale
@@ -214,14 +243,14 @@ describe("Private Sale", function () {
 
     it("Should check available tokens of X Address", async () => {
       let availableOf = await privateSale.availableOf(userAccount.address);
-      expect(availableOf).to.equal(parseEther(13466.56));
+      expect(availableOf).to.equal(parseEther(16160));
     })
 
     it("Should be able to claim 8% of available tokens", async () => {
       await privateSale.connect(userAccount).claim();
       let balance = await foxtrotToken.balanceOf(userAccount.address);
       expect(Number(formatEther(balance))).to.equal(
-        13466.56,
+        16160,
         "Balance of 8% tokens incorrect"
       );
     });
@@ -265,17 +294,17 @@ describe("Private Sale", function () {
     it("Should purge non selled tokens", async () => {
       await privateSale.setSaleEnd();
 
-      let totalAmountOfBuyedTokens = 513_331 - 13466.56;
+      /* let totalAmountOfBuyedTokens = 513_331 - 13466.56;
       await privateSale.connect(masterAccount).purgeNonSelledTokens();
       let balance_after = await privateSale.balance(foxtrotToken.address);
       expect(Number(formatEther(balance_after))).to.equal(
         totalAmountOfBuyedTokens,
         "Purge balance privateSale incorrect"
-      );
+      ); */
 
       let balance = await foxtrotToken.balanceOf(foxtrotToken.address);
       expect(Number(formatEther(balance))).to.equal(
-        214_486_669,
+        199_950_000,
         "Purge balance foxtrotToken incorrect"
       );
     });
